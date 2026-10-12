@@ -1,47 +1,38 @@
-# XRE Franchise Form → Bitrix24 + Telegram + SMS + E-posta (n8n)
+# XRE Franchise Formu → Telegram + SMS + E-posta (n8n)
+
+Form: https://form.xre.com.tr/franchise/ — bir **Bitrix24 CRM formu** (Form ID 160).
+Form gönderilince Bitrix, "Franchise" hattında (kategori 4) `Potansiyel Franchise`
+aşamasında bir anlaşma + kişi açar. Bu aşamadaki **Webhook robotu** n8n'i çağırır.
 
 `xre-franchise-form.json`, n8n'e **Workflows → Import from File** ile içe aktarılır.
 
 ## Akış
 
 ```
-Form Webhook ─► Form Verisini Hazırla ─► Bitrix: Mükerrer Kontrol (telefon)
-     ├─ lead varsa ───────────────────────┐
-     └─ yoksa ─► Bitrix: Lead Oluştur ────┴─► Bitrix: Lead Getir ─► Bitrix: Sorumlu Getir ─► Mesajları Hazırla
-                                                                                             ├─► Telegram: Gruba Bildir
-                                                                                             ├─► Ercell: Müşteriye SMS
-                                                                                             └─► (e-posta varsa) Müşteriye E-posta
+Bitrix Robot Webhook ─► Bitrix İsteğini Oku (DEAL_123 → 123)
+  ─► Bitrix: Anlaşma + Kişi + Sorumlu (tek batch çağrısı)
+  ─► Mesajları Hazırla
+       ├─► Telegram: Gruba Bildir
+       ├─► Telefon Var mı? ─► Ercell: Müşteriye SMS
+       └─► E-posta Var mı? ─► Müşteriye E-posta
 ```
 
-Telegram grubuna giden mesajda ad soyad, telefon, e-posta, şehir, formdaki diğer tüm alanlar,
-sorumlu kişi, lead durumu ve Bitrix kartı linki bulunur. Aynı telefonla ikinci başvuru gelirse
-yeni lead açılmaz, mevcut kart "(mükerrer)" etiketiyle bildirilir.
+Akış Bitrix'te **kayıt oluşturmaz**, yalnızca okur. Telegram mesajında ad soyad, telefon,
+e-posta, ülke, sorumlu, aşama ve anlaşma/kişi kartı linkleri bulunur.
+
+Veri kaynakları: ad soyad ve telefon/e-posta önce **kişiden**, yoksa anlaşmadaki
+`Telefon` (`UF_CRM_1734685306767`) ve `E-posta` (`UF_CRM_1726650433488`) alanlarından alınır.
 
 ## Kurulum
 
-1. **Ayarlar**: `Form Verisini Hazırla` node'unun en üstündeki `AYAR` bloğunu doldurun
-   (Bitrix gelen webhook URL'si — `crm` ve `user` izinli, portal adresi, SMS metni).
-2. **Telegram**: n8n → Credentials → *Telegram API* → bot token'ını (`@xre_rapor_bot`) girin,
-   adını `XRE Rapor Bot` koyun. Token'ı JSON'a / repoya yazmayın.
-   - Chat ID `-5591560509` olarak ayarlı. Mesaj gitmezse grup "süper grup" olabilir;
-     o zaman `-1005591560509` deneyin (doğru ID'yi görmek için gruba bir mesaj yazıp
-     `https://api.telegram.org/bot<TOKEN>/getUpdates` açın).
-3. **Ercell SMS**: `AYAR.ercell` içine XML API adresi, kullanıcı adı ve şifreyi girin.
-   SMS, Ercell `CORPORATESMS` XML formatında (başlık `XRE`, `UC`, `1:N`) gönderilir;
-   numara `905XXXXXXXXX` formatındadır.
-   > Repo herkese açık olduğu için buradaki JSON'da Bitrix webhook kodu ve Ercell şifresi
-   > yer tutucudur; gerçek değerler yalnızca n8n'deki workflow'da durmalı.
-4. **E-posta**: *SMTP* credential'ı (`XRE SMTP`) oluşturun, `fromEmail`'i kontrol edin.
-5. Workflow'u **Active** yapın ve **Production URL**'yi alın:
-   `https://<n8n-adresiniz>/webhook/xre-franchise-form`
-6. **Formu bağlayın** (form.xre.com.tr/franchise-form):
-   - *Elementor Pro Form*: Actions After Submit → **Webhook** → URL'yi yapıştırın
-     (Advanced Data açık olabilir, ikisi de desteklenir).
-   - *Contact Form 7*: "CF7 to Webhook" eklentisi ile URL'yi girin.
-   - *WPForms / Gravity / Fluent*: ilgili Webhooks eklentisi ile POST gönderin.
+1. `Bitrix İsteğini Oku` node'undaki `AYAR` bloğunu doldurun (Bitrix gelen webhook, Ercell
+   kullanıcı/şifre). Repo herkese açık olduğu için buradaki değerler yer tutucudur.
+2. Telegram credential (`@xre_rapor_bot`) ve SMTP credential'ını seçin.
+3. Workflow'u **Active** yapın; **Production URL**'yi Bitrix'te Franchise hattı →
+   Potansiyel Franchise aşamasındaki **Webhook** robotuna girin.
+4. Elle test: `POST <production-url>?deal_id=149548`
 
-Form alan adları otomatik eşlenir (`ad`, `soyad`, `ad_soyad`, `name`, `telefon`, `phone`,
-`email`, `e_posta`, `sehir`, `mesaj` vb.); tanınmayan alanlar Telegram'da ve Bitrix
-yorumunda "ek alan" olarak gösterilir.
+## Önemli
 
-Telegram, SMS ve e-posta adımları birbirinden bağımsız: biri hata verirse diğerleri yine çalışır.
+- **SMS için formda telefon alanı olmalı.** Bitrix formuna bir telefon alanı ekleyip
+  *Kişi → Telefon* alanına eşleyin; aksi halde SMS adımı atlanır.
