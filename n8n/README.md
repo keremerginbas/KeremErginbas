@@ -26,9 +26,11 @@ yeni lead açılmaz, mevcut kart "(mükerrer)" etiketiyle bildirilir.
    - Chat ID `-5591560509` olarak ayarlı. Mesaj gitmezse grup "süper grup" olabilir;
      o zaman `-1005591560509` deneyin (doğru ID'yi görmek için gruba bir mesaj yazıp
      `https://api.telegram.org/bot<TOKEN>/getUpdates` açın).
-3. **Ercell SMS**: `Ercell: Müşteriye SMS` node'unda URL, kullanıcı adı, şifre, onaylı başlık
-   ve gövde alan adlarını Ercell API dokümanınıza göre düzenleyin. Numara `905XXXXXXXXX`
-   formatında `telefonSms` alanında hazır gelir.
+3. **Ercell SMS**: `AYAR.ercell` içine XML API adresi, kullanıcı adı ve şifreyi girin.
+   SMS, Ercell `CORPORATESMS` XML formatında (başlık `XRE`, `UC`, `1:N`) gönderilir;
+   numara `905XXXXXXXXX` formatındadır.
+   > Repo herkese açık olduğu için buradaki JSON'da Bitrix webhook kodu ve Ercell şifresi
+   > yer tutucudur; gerçek değerler yalnızca n8n'deki workflow'da durmalı.
 4. **E-posta**: *SMTP* credential'ı (`XRE SMTP`) oluşturun, `fromEmail`'i kontrol edin.
 5. Workflow'u **Active** yapın ve **Production URL**'yi alın:
    `https://<n8n-adresiniz>/webhook/xre-franchise-form`
