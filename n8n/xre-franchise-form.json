@@ -1,0 +1,381 @@
+{
+  "name": "XRE Franchise Form → Bitrix + Telegram + SMS + E-posta",
+  "nodes": [
+    {
+      "id": "0f66049e-3c8e-566c-adc5-23e6f64aa9dc",
+      "name": "Form Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "xre-franchise-form",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "8a3e8b40-c39d-56b2-9b6d-1aed6fe4e28c",
+      "name": "Form Verisini Hazırla",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// ==== AYARLAR — sadece burayı düzenleyin ====\nconst AYAR = {\n  bitrixWebhook: 'https://xre.bitrix24.com.tr/rest/1/XXXXXXXXXXXX/', // Bitrix24 > Geliştirici > Gelen webhook (crm + user izinli). Sonunda / olsun\n  bitrixPortal:  'https://xre.bitrix24.com.tr',                      // Kart linki için\n  telegramChatId: '-5591560509',\n  leadKaynak: 'WEB',                                                  // Bitrix SOURCE_ID\n  leadBaslikOnEki: 'Franchise Başvurusu',\n  smsMetni: 'XRE franchise başvurunuz alınmıştır. Danışmanımız en kısa sürede sizinle iletişime geçecektir.',\n  epostaKonu: 'XRE Franchise Başvurunuz Alındı',\n};\n// ============================================\n\nconst raw = $json.body ?? $json;\nconst flat = {};\nconst gizli = new Set();\nconst put = (k, v) => {\n  if (v === undefined || v === null || v === '') return;\n  const key = String(k).toLowerCase().replace(/[\\s\\-\\[\\]]+/g, '_').replace(/^form_fields_|^fields_|^your_/, '');\n  flat[key] = Array.isArray(v) ? v.join(', ') : String(v).trim();\n};\n// Elementor Pro webhook: fields[id][value] / fields[id][title]\nif (raw.fields && typeof raw.fields === 'object') {\n  for (const [id, f] of Object.entries(raw.fields)) {\n    if (f && typeof f === 'object') {\n      put(id, f.value ?? f.raw_value);\n      if (f.title) { put(f.title, f.value ?? f.raw_value); gizli.add(String(id).toLowerCase()); }\n    }\n    else put(id, f);\n  }\n}\nfor (const [k, v] of Object.entries(raw)) if (typeof v !== 'object' || Array.isArray(v)) put(k, v);\n\nconst pick = (...keys) => { for (const k of keys) if (flat[k]) return flat[k]; return ''; };\nlet ad = pick('ad', 'isim', 'first_name', 'firstname', 'name_first');\nlet soyad = pick('soyad', 'soyisim', 'last_name', 'lastname', 'surname');\nlet adSoyad = pick('ad_soyad', 'adsoyad', 'ad_soyadı', 'adınız_soyadınız', 'full_name', 'fullname', 'name', 'isim_soyisim');\nif (!adSoyad) adSoyad = [ad, soyad].filter(Boolean).join(' ');\nelse if (soyad && !adSoyad.includes(soyad)) { ad = ad || adSoyad; adSoyad = adSoyad + ' ' + soyad; }\nif (!ad && adSoyad) { const p = adSoyad.split(/\\s+/); soyad = p.length > 1 ? p.pop() : ''; ad = p.join(' '); }\n\nconst telHam = pick('telefon', 'tel', 'telefon_numarası', 'telefon_numaranız', 'cep_telefonu', 'gsm', 'phone', 'mobile');\nlet d = telHam.replace(/\\D/g, '');\nif (d.startsWith('0090')) d = d.slice(2);\nif (d.startsWith('0')) d = '90' + d.slice(1);\nif (d.length === 10 && d.startsWith('5')) d = '90' + d;\nconst telefonSms = d;                          // 905XXXXXXXXX\nconst telefon = d ? '+' + d : telHam;          // +905XXXXXXXXX\n\nconst email = pick('email', 'e_posta', 'eposta', 'e_mail', 'mail', 'e_posta_adresi', 'email_adresi');\nconst sehir = pick('şehir', 'sehir', 'il', 'city', 'bölge', 'bolge', 'başvuru_yapılan_şehir');\nconst mesaj = pick('mesaj', 'mesajınız', 'not', 'açıklama', 'aciklama', 'message');\n\nconst bilinen = new Set(['ad','isim','first_name','firstname','soyad','soyisim','last_name','lastname','surname','ad_soyad','adsoyad','full_name','fullname','name',\n  'telefon','tel','telefon_numarası','cep_telefonu','gsm','phone','mobile','email','e_posta','eposta','e_mail','mail','şehir','sehir','il','city','mesaj','message',\n  'form_id','form_name','queried_id','referer_title','_wpcf7','_wpcf7_version','_wpcf7_locale','_wpcf7_unit_tag','_wpcf7_container_post','g_recaptcha_response']);\nconst ekAlanlar = Object.entries(flat).filter(([k, v]) => !bilinen.has(k) && !gizli.has(k) && v !== adSoyad && v !== telHam && v !== email && !k.startsWith('_') && !k.startsWith('meta')).map(([k, v]) => ({ alan: k, deger: v }));\n\nreturn [{ json: { ayar: AYAR, ad, soyad, adSoyad, telefon, telefonSms, email, sehir, mesaj, ekAlanlar, tarih: new Date().toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }) } }];\n"
+      }
+    },
+    {
+      "id": "d30a0f49-da31-5d39-91fa-7fab6075b0fa",
+      "name": "Bitrix: Mükerrer Kontrol",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.ayar.bitrixWebhook }}crm.duplicate.findbycomm.json",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ entity_type: 'LEAD', type: 'PHONE', values: [$json.telefon] }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "39934744-e153-5e34-9155-540216eaeaf2",
+      "name": "Lead Var mı?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ ($json.result && $json.result.LEAD && $json.result.LEAD.length) ? true : false }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "70dddd13-7cb6-5ffa-83bc-a9fd500d0422",
+      "name": "Bitrix: Lead Oluştur",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        400
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Form Verisini Hazırla').first().json.ayar.bitrixWebhook }}crm.lead.add.json",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => { const f = $('Form Verisini Hazırla').first().json; return JSON.stringify({ fields: { TITLE: f.ayar.leadBaslikOnEki + ' - ' + f.adSoyad + (f.sehir ? ' (' + f.sehir + ')' : ''), NAME: f.ad, LAST_NAME: f.soyad, SOURCE_ID: f.ayar.leadKaynak, SOURCE_DESCRIPTION: 'form.xre.com.tr/franchise-form', ADDRESS_CITY: f.sehir, PHONE: f.telefon ? [{ VALUE: f.telefon, VALUE_TYPE: 'MOBILE' }] : [], EMAIL: f.email ? [{ VALUE: f.email, VALUE_TYPE: 'WORK' }] : [], COMMENTS: [f.mesaj, ...f.ekAlanlar.map(e => e.alan + ': ' + e.deger)].filter(Boolean).join('<br>') }, params: { REGISTER_SONET_EVENT: 'Y' } }); })() }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "94a7f505-2d19-5e05-8714-bef1f3327b18",
+      "name": "Bitrix: Lead Getir",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Form Verisini Hazırla').first().json.ayar.bitrixWebhook }}crm.lead.get.json",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ id: $json.result?.LEAD?.[0] ?? $json.result }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "3d76ad1f-729d-5bfd-ae3c-7ceadb857901",
+      "name": "Bitrix: Sorumlu Getir",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Form Verisini Hazırla').first().json.ayar.bitrixWebhook }}user.get.json",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ID: $json.result.ASSIGNED_BY_ID }) }}",
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "c3866015-a762-58b3-968f-ff83bd17b2f5",
+      "name": "Mesajları Hazırla",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const f = $('Form Verisini Hazırla').first().json;\nconst lead = $('Bitrix: Lead Getir').first().json.result || {};\nconst userRes = $('Bitrix: Sorumlu Getir').first().json.result;\nconst u = Array.isArray(userRes) ? userRes[0] : null;\nconst sorumlu = u ? [u.NAME, u.LAST_NAME].filter(Boolean).join(' ') : 'Atanmadı';\nconst sorumluTel = u ? (u.PERSONAL_MOBILE || u.WORK_PHONE || '') : '';\nconst yeni = $('Bitrix: Mükerrer Kontrol').first().json.result?.LEAD?.length ? false : true;\nconst kartLink = `${f.ayar.bitrixPortal}/crm/lead/details/${lead.ID}/`;\nconst esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\nconst satir = [\n  '📝 <b>Yeni Franchise Formu Dolduruldu</b>' + (yeni ? '' : ' <i>(mükerrer — mevcut kart)</i>'),\n  '',\n  `👤 <b>Ad Soyad:</b> ${esc(f.adSoyad)}`,\n  `📞 <b>Telefon:</b> ${esc(f.telefon)}`,\n  f.email ? `✉️ <b>E-posta:</b> ${esc(f.email)}` : null,\n  f.sehir ? `📍 <b>Şehir:</b> ${esc(f.sehir)}` : null,\n  ...f.ekAlanlar.map(e => `▫️ <b>${esc(e.alan.replace(/_/g, ' ').replace(/^./, c => c.toLocaleUpperCase('tr')))}:</b> ${esc(e.deger)}`),\n  f.mesaj ? `💬 <b>Mesaj:</b> ${esc(f.mesaj)}` : null,\n  '',\n  `🧑‍💼 <b>Sorumlu:</b> ${esc(sorumlu)}${sorumluTel ? ' (' + esc(sorumluTel) + ')' : ''}`,\n  `📊 <b>Durum:</b> ${esc(lead.STATUS_ID || '-')}`,\n  `🔗 <a href=\"${kartLink}\">Bitrix Kartı #${lead.ID}</a>`,\n  `🕒 ${f.tarih}`,\n].filter(x => x !== null).join('\\n');\n\nconst epostaHtml = `<div style=\"font-family:Arial,sans-serif;font-size:15px;color:#222;line-height:1.6\">\n<p>Sayın ${esc(f.adSoyad)},</p>\n<p>${esc(f.ayar.smsMetni)}</p>\n<p>İlginiz için teşekkür ederiz.</p>\n<p><b>XRE Gayrimenkul</b></p></div>`;\n\nreturn [{ json: { ...f, leadId: lead.ID, kartLink, sorumlu, telegramMetni: satir, epostaHtml } }];\n"
+      }
+    },
+    {
+      "id": "ae8c6faf-5b6f-5e8e-8a3c-f3aeb719f544",
+      "name": "Telegram: Gruba Bildir",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1780,
+        120
+      ],
+      "parameters": {
+        "chatId": "={{ $json.ayar.telegramChatId }}",
+        "text": "={{ $json.telegramMetni }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML",
+          "disable_web_page_preview": true
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "XRE Rapor Bot"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "693f05c5-cba5-5017-95ff-b3e090c097b5",
+      "name": "Ercell: Müşteriye SMS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1780,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://ERCELL_API_ADRESI/sms/send",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ username: 'ERCELL_KULLANICI', password: 'ERCELL_SIFRE', header: 'XRE', message: $json.ayar.smsMetni, numbers: [$json.telefonSms] }) }}",
+        "options": {}
+      },
+      "onError": "continueRegularOutput",
+      "notes": "Ercell API bilgilerinizi girin: URL, kullanıcı/şifre, onaylı başlık (originator) ve alan adlarını Ercell dokümanına göre düzenleyin."
+    },
+    {
+      "id": "11ee454a-8157-5f28-8102-53ea6a00736d",
+      "name": "E-posta Var mı?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        480
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "4390140c-d229-5b38-9af5-c6b5b1c269ad",
+      "name": "Müşteriye E-posta",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2000,
+        480
+      ],
+      "parameters": {
+        "fromEmail": "XRE Franchise <franchise@xre.com.tr>",
+        "toEmail": "={{ $json.email }}",
+        "subject": "={{ $json.ayar.epostaKonu }}",
+        "emailFormat": "html",
+        "html": "={{ $json.epostaHtml }}",
+        "options": {}
+      },
+      "credentials": {
+        "smtp": {
+          "id": "",
+          "name": "XRE SMTP"
+        }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Form Webhook": {
+      "main": [
+        [
+          {
+            "node": "Form Verisini Hazırla",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Form Verisini Hazırla": {
+      "main": [
+        [
+          {
+            "node": "Bitrix: Mükerrer Kontrol",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bitrix: Mükerrer Kontrol": {
+      "main": [
+        [
+          {
+            "node": "Lead Var mı?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead Var mı?": {
+      "main": [
+        [
+          {
+            "node": "Bitrix: Lead Getir",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Bitrix: Lead Oluştur",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bitrix: Lead Oluştur": {
+      "main": [
+        [
+          {
+            "node": "Bitrix: Lead Getir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bitrix: Lead Getir": {
+      "main": [
+        [
+          {
+            "node": "Bitrix: Sorumlu Getir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bitrix: Sorumlu Getir": {
+      "main": [
+        [
+          {
+            "node": "Mesajları Hazırla",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mesajları Hazırla": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Gruba Bildir",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Ercell: Müşteriye SMS",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "E-posta Var mı?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E-posta Var mı?": {
+      "main": [
+        [
+          {
+            "node": "Müşteriye E-posta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Istanbul"
+  },
+  "pinData": {}
+}
